@@ -11,12 +11,14 @@ int MAX_USER_INPUT = 1000;
 char *args[20];
 int bg = 0;
 int getcmd(char *prompt, char *args[], int *background);
-int createchild(char *args[]);
-int execcmd(char *command, char *args[]);
+int createchild(char *args[], int args_size);
+int execcmd(char *command, char *args[], int args_size);
 // static void signalHandler(int sig);
 
 // command prompts
 int echo (char *args[]);
+int cd (char *args[], int args_size);
+int pwd(void);
 int help(void);
 
 int main(int argc, char *argv[]) 
@@ -27,10 +29,11 @@ int main(int argc, char *argv[])
         bg = 0;
         int cnt = getcmd("\n>> ", args, &bg);
         // Create child process
-        createchild(args);
+        createchild(args, cnt);
 
         // Reset all arguments to accept the new command
-        memset(args, 0, sizeof args);
+        printf("--> Resetting arguments\n");
+        memset(args, 0, cnt);
     }
     return 0;
 }
@@ -73,7 +76,7 @@ int getcmd(char *prompt, char *args[], int *background)
     return i;
 }
 
-int createchild(char *args[]) 
+int createchild(char *args[], int args_size) 
 {
     int status_code = 0;
     int pid = fork();
@@ -82,7 +85,7 @@ int createchild(char *args[])
         printf("--> Child running\n");
 
         // Running "echo" command
-        status_code = execcmd(args[0], args);
+        status_code = execcmd(args[0], args, args_size);
 
         if (status_code < 0) {
             printf("--> Child failed\n");
@@ -100,7 +103,7 @@ int createchild(char *args[])
     return 0;
 }
 
-int execcmd(char *command, char *args[]) 
+int execcmd(char *command, char *args[], int args_size) 
 {
     int status_code = 0;
     if (strcmp(command, "echo") == 0)
@@ -109,7 +112,11 @@ int execcmd(char *command, char *args[])
     }
     else if (strcmp(command, "cd") == 0)
     {
-        printf("TODO -- Create 'cd' command\n");
+        status_code = cd(args, args_size);
+    }
+    else if (strcmp(command, "pwd") == 0)
+    {
+        status_code = pwd();
     }
     else if (strcmp(command, "help") == 0)
     {
@@ -117,18 +124,20 @@ int execcmd(char *command, char *args[])
     }
     else
     {
+        status_code = execvp(command, args);
         printf("Command not found. Type 'help' for more information\n");
-        status_code = -1;
+        // status_code = -1;
     }
     return status_code;
 }
 
-/* echo --  This command takes a string with spaces in between as an argument. 
-            It prints the argument to the screen.
+/*
+    echo - print all arguments to the console.
 */
 int echo (char *args[]) 
 {
-    for (int i = 1; i < sizeof *args; i++) {
+    for (int i = 1; i < sizeof *args; i++) 
+    {
         if (args[i] == NULL) continue;
         printf("%s ", args[i]);
     }
@@ -137,6 +146,41 @@ int echo (char *args[])
     return 0;
 }
 
+/*
+    cd - changes directory based on the given path.
+         If no path was provided, then it will print the current working directory.
+*/
+int cd (char *args[], int args_size)
+{
+    int status_code = 0;
+    if (args_size == 1)
+    {
+        status_code = pwd();
+    }
+    else
+    {
+        status_code = chdir(args[1]);
+    }
+    return status_code;
+}
+
+/*
+    pwd - print the current working directory.
+*/
+int pwd ()
+{
+    char path[100];
+    if (getcwd(path, sizeof path) == NULL)
+    {
+        return -1;
+    }
+    printf("%s\n", path);
+    return 0;
+}
+
+/*
+    help - print the available commands.
+*/
 int help(void)
 {
     printf("\nHere are the available commands:\n");
