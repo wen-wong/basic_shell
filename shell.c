@@ -18,21 +18,13 @@ int main(int argc, char *argv[]) {
         bg = 0;
         int cnt = getcmd("\n>> ", args, &bg);
 
-        int pid = fork();
-        printf("%d", pid);
-        if (pid == 0) {
-            // Handle child process
-            printf("%s", argv[1]);
-            int status_code = execvp(argv[1], argv);
-            if (status_code == -1) {
-                printf("Error");
-            }
-        } else {
-            // Handle parent process
-            if (bg == 0) {
-                waitpid(pid, NULL, 0);
-            }
+        // Print all arguments created by getcmd
+        for (int i = 0; i < 20; i++) {
+            if (args[i] == NULL) continue;
+            printf("%s ", args[i]);
         }
+
+        memset(args, 0, sizeof args);
     }
     return 0;
 }
