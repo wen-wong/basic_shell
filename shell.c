@@ -2,40 +2,71 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
-
-// Libraries to call waitpid
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <signal.h>
+
+#define LENGTH 20
 
 int MAX_USER_INPUT = 1000;
 char *args[20];
 int bg = 0;
+
+// Running the shell functions
 int getcmd(char *prompt, char *args[], int *background);
 int createchild(char *args[], int args_size);
 int execcmd(char *command, char *args[], int args_size);
-// static void signalHandler(int sig);
-
-// command prompts
+void reset_shell(char *args[], int *background);
+// Handling the input signals
+static void handle_signal(int signal);
+// Built-in commands
 int echo (char *args[]);
 int cd (char *args[], int args_size);
 int pwd(void);
 int help(void);
+int exit_builtin(char *args[]);
+int jobs(int id);
 
 int main(int argc, char *argv[]) 
 {
     printf("%s\n", "Booting shell...");
+
+    // Handle signal handling errors
+    if (signal(SIGINT, handle_signal) == SIG_ERR)
+    {
+        printf("Could not bind the SIGINT signal handler\n");
+        exit(EXIT_FAILURE);
+    }
+    if (signal(SIGTSTP, handle_signal) == SIG_ERR)
+    {
+        printf("Could not bind the SIGINT signal handler\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Running the shell
     while(1) 
     {
-        bg = 0;
         int cnt = getcmd("\n>> ", args, &bg);
-        // Create child process
         createchild(args, cnt);
-
-        // Reset all arguments to accept the new command
-        printf("--> Resetting arguments\n");
-        memset(args, 0, cnt);
+        reset_shell(args, &bg);
     }
     return 0;
+}
+
+static void handle_signal(int signal)
+{
+    if (signal == SIGINT)
+    {
+        printf("Caught signal %d, and now exiting the shell\n.", signal);
+        exit(1);
+    }
+}
+
+void reset_shell(char* args[], int *background)
+{
+    printf("--> Resetting arguments\n");
+    free(*args);
+    *background = 0;
 }
 
 int getcmd(char *prompt, char *args[], int *background) 
@@ -58,20 +89,19 @@ int getcmd(char *prompt, char *args[], int *background)
     {
         *background = 1;
         *loc = ' ';
-    } else 
-        *background = 0;
+    } 
+    else *background = 0;
 
     while ((token = strsep(&line, " \t\n")) != NULL) 
     {
         for (int token_index = 0; token_index < strlen(token); token_index++) 
         {
-            // Handle non-printable charactersß
-            if (token[token_index] <= 32)
-                token[token_index] = '\0';
+            // Handle non-printable characters
+            if (token[token_index] <= 32) token[token_index] = '\0';
         }
-        if (strlen(token) > 0)
-            args[i++] = token;
+        if (strlen(token) > 0) args[i++] = token;
     }
+    args[i] = NULL;
 
     return i;
 }
@@ -79,14 +109,17 @@ int getcmd(char *prompt, char *args[], int *background)
 int createchild(char *args[], int args_size) 
 {
     int status_code = 0;
+    // TODO Avoid child process if built-in command is called
+    if (args_size == 0) return -1;
+    status_code = execcmd(args[0], args, args_size);
     int pid = fork();
     // printf("%d", pid);
     if (pid == 0) {
         printf("--> Child running\n");
 
         // Running "echo" command
-        status_code = execcmd(args[0], args, args_size);
-
+        status_code = execvp(args[0], args);
+        printf("Command not found. Type 'help' for more information\n");
         if (status_code < 0) {
             printf("--> Child failed\n");
             exit(-1);
@@ -122,11 +155,9 @@ int execcmd(char *command, char *args[], int args_size)
     {
         status_code = help();
     }
-    else
+    else if (strcmp(command, "exit") == 0)
     {
-        status_code = execvp(command, args);
-        printf("Command not found. Type 'help' for more information\n");
-        // status_code = -1;
+        status_code = exit_builtin(args);
     }
     return status_code;
 }
@@ -185,5 +216,18 @@ int help(void)
 {
     printf("\nHere are the available commands:\n");
     printf("\becho\ttakes a string with spaces as arguments, and prints its arguments.\n");
+    return 0;
+}
+
+int exit_builtin(char* args[]) 
+{
+    free(*args);
+    exit(0);
+    return 0;
+}
+
+int jobs(int id)
+{
+    
     return 0;
 }
