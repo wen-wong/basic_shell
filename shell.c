@@ -23,27 +23,24 @@ void reset_shell(char *args[], int *background, int *builtin_cmd);
 // Handling the input signals
 static void handle_signal(int signal);
 // Built-in commands
-int echo (char *args[]);
+int echo (char *args[], int args_size);
 int cd (char *args[], int args_size);
 int pwd(void);
-int help(void);
-int exit_builtin(char *args[]);
-int jobs(int id);
+void exit_builtin(char *args[]);
+int fg(char *args[], int args_size);
+int jobs(void);
 
-int exec_builtin(char *args[], int cnt, int *buitlin_cmd)
-{
-    return execcmd(args[0], args, cnt);
-}
-
-int set_output_redireciton(char *args[], int cnt)
+int set_output_redirection(char *args[], int cnt)
 {
     int redirect = 0;
     for (int i = 1; i < cnt; i++)
     {
         if (strcmp(args[i], ">") == 0)
         {
+            if (i + 1 > cnt) break;
             close(1);
-            redirect = open(args[i + 1], O_RDWR);
+            open(args[i + 1], O_RDWR);
+            redirect = i;
             break;
         }
     }
@@ -70,8 +67,12 @@ int main(int argc, char *argv[])
     while(1) 
     {
         int cnt = getcmd("\n>> ", args, &bg);
-        int output_redirection = set_output_redireciton(args, cnt);
-        int builtin = exec_builtin(args, cnt, &builtin_cmd);
+        int output_redirection = set_output_redirection(args, cnt);
+        if (output_redirection > 0)
+        { 
+            cnt = output_redirection;
+        }
+        int builtin = execcmd(args[0], args, cnt);
         if (builtin < 0) createchild(args, cnt);
         reset_shell(args, &bg, &builtin_cmd);
     }
@@ -82,14 +83,14 @@ static void handle_signal(int signal)
 {
     if (signal == SIGINT)
     {
-        printf("Caught signal %d, and now exiting the shell\n.", signal);
+        printf("%s %d%s\n.", "Caught signal", signal, ", and now exiting the shell");
         exit(1);
     }
 }
 
 void reset_shell(char* args[], int *background, int *builtin_cmd)
 {
-    printf("--> Resetting arguments\n");
+    // TODO Close file if output redirection is called
     free(*args);
     *background = 0;
     *builtin_cmd = 0;
@@ -105,10 +106,7 @@ int getcmd(char *prompt, char *args[], int *background)
     printf("%s", prompt);
     length = getline(&line, &linecap, stdin);
 
-    if (length <= 0) 
-    {
-        exit(-1);
-    }
+    if (length <= 0) exit(-1);
 
     // Handle background process
     if ((loc = index(line, '&')) != NULL) 
@@ -141,10 +139,7 @@ int createchild(char *args[], int args_size)
     // printf("%d", pid);
     if (pid == 0) {
         printf("--> Child running\n");
-
-        // Running "echo" command
         status_code = execvp(args[0], args);
-        printf("Command not found. Type 'help' for more information\n");
         if (status_code < 0) {
             printf("--> Child failed\n");
             exit(-1);
@@ -164,9 +159,10 @@ int createchild(char *args[], int args_size)
 int execcmd(char *command, char *args[], int args_size) 
 {
     int status_code = -1;
+    if (args_size <= 0) return status_code; 
     if (strcmp(command, "echo") == 0)
     {
-        status_code = echo(args);
+        status_code = echo(args, args_size);
     }
     else if (strcmp(command, "cd") == 0)
     {
@@ -176,13 +172,17 @@ int execcmd(char *command, char *args[], int args_size)
     {
         status_code = pwd();
     }
-    else if (strcmp(command, "help") == 0)
-    {
-        status_code = help();
-    }
     else if (strcmp(command, "exit") == 0)
     {
-        status_code = exit_builtin(args);
+        exit_builtin(args);
+    }
+    else if (strcmp(command, "fg") == 0)
+    {
+        status_code = fg(args, args_size);
+    }
+    else if (strcmp(command, "jobs") == 0)
+    {
+        status_code = jobs();
     }
     return status_code;
 }
@@ -190,9 +190,9 @@ int execcmd(char *command, char *args[], int args_size)
 /*
     echo - print all arguments to the console.
 */
-int echo (char *args[]) 
+int echo (char *args[], int args_size) 
 {
-    for (int i = 1; i < sizeof *args; i++) 
+    for (int i = 1; i < args_size; i++) 
     {
         if (args[i] == NULL) continue;
         printf("%s ", args[i]);
@@ -221,7 +221,7 @@ int cd (char *args[], int args_size)
 }
 
 /*
-    pwd - print the current working directory.
+    pwd - print the current working directory
 */
 int pwd ()
 {
@@ -235,24 +235,25 @@ int pwd ()
 }
 
 /*
-    help - print the available commands.
+    exit - free any allocated memory, kills any child process and exits the shell
 */
-int help(void)
-{
-    printf("\nHere are the available commands:\n");
-    printf("\becho\ttakes a string with spaces as arguments, and prints its arguments.\n");
-    return 0;
-}
-
-int exit_builtin(char* args[]) 
+// TODO Handle killing all child processes
+void exit_builtin(char* args[]) 
 {
     free(*args);
     exit(0);
+}
+
+// TODO Bring a background job to the foreground using their pid
+int fg(char *args[], int args_size)
+{
+    if (args_size != 2) return -1;
+    // ? Bring job with corresponding pid to foreground
     return 0;
 }
 
-int jobs(int id)
+// TODO List jobs running in the background
+int jobs()
 {
-    
     return 0;
 }
