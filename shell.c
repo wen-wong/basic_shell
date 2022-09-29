@@ -5,18 +5,21 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <fcntl.h>
 
 #define LENGTH 20
 
 int MAX_USER_INPUT = 1000;
 char *args[20];
 int bg = 0;
+int builtin_cmd = 0;
+// int output_redirection = 0;
 
 // Running the shell functions
 int getcmd(char *prompt, char *args[], int *background);
 int createchild(char *args[], int args_size);
 int execcmd(char *command, char *args[], int args_size);
-void reset_shell(char *args[], int *background);
+void reset_shell(char *args[], int *background, int *builtin_cmd);
 // Handling the input signals
 static void handle_signal(int signal);
 // Built-in commands
@@ -26,6 +29,26 @@ int pwd(void);
 int help(void);
 int exit_builtin(char *args[]);
 int jobs(int id);
+
+int exec_builtin(char *args[], int cnt, int *buitlin_cmd)
+{
+    return execcmd(args[0], args, cnt);
+}
+
+int set_output_redireciton(char *args[], int cnt)
+{
+    int redirect = 0;
+    for (int i = 1; i < cnt; i++)
+    {
+        if (strcmp(args[i], ">") == 0)
+        {
+            close(1);
+            redirect = open(args[i + 1], O_RDWR);
+            break;
+        }
+    }
+    return redirect;
+}
 
 int main(int argc, char *argv[]) 
 {
@@ -47,8 +70,10 @@ int main(int argc, char *argv[])
     while(1) 
     {
         int cnt = getcmd("\n>> ", args, &bg);
-        createchild(args, cnt);
-        reset_shell(args, &bg);
+        int output_redirection = set_output_redireciton(args, cnt);
+        int builtin = exec_builtin(args, cnt, &builtin_cmd);
+        if (builtin < 0) createchild(args, cnt);
+        reset_shell(args, &bg, &builtin_cmd);
     }
     return 0;
 }
@@ -62,11 +87,12 @@ static void handle_signal(int signal)
     }
 }
 
-void reset_shell(char* args[], int *background)
+void reset_shell(char* args[], int *background, int *builtin_cmd)
 {
     printf("--> Resetting arguments\n");
     free(*args);
     *background = 0;
+    *builtin_cmd = 0;
 }
 
 int getcmd(char *prompt, char *args[], int *background) 
@@ -111,7 +137,6 @@ int createchild(char *args[], int args_size)
     int status_code = 0;
     // TODO Avoid child process if built-in command is called
     if (args_size == 0) return -1;
-    status_code = execcmd(args[0], args, args_size);
     int pid = fork();
     // printf("%d", pid);
     if (pid == 0) {
@@ -129,7 +154,7 @@ int createchild(char *args[], int args_size)
         }
     } else {
         printf("--> Parent waiting\n");
-        waitpid(pid, &status_code, 0);
+        if (bg == 0) waitpid(pid, &status_code, 0);
         printf("--> Parent done\n");
     }
 
@@ -138,7 +163,7 @@ int createchild(char *args[], int args_size)
 
 int execcmd(char *command, char *args[], int args_size) 
 {
-    int status_code = 0;
+    int status_code = -1;
     if (strcmp(command, "echo") == 0)
     {
         status_code = echo(args);
