@@ -7,11 +7,14 @@
 #include <signal.h>
 #include <fcntl.h>
 
-void handle_signal(int signal);
+
 int getcmd(char *prompt, char *args[], int *background);
 int exec_builtin(char *args[], int args_size, int *background, int *builtin);
 int create_child(char *args[], int args_size, int *background);
 int reset_prompt(char *args[], int *background, int *builtin);
+
+void handle_signal(int signal);
+int verify_output_redir(char *args[], int args_size);
 
 int echo (char *args[], int args_size);
 int cd (char *args[], int args_size);
@@ -42,17 +45,13 @@ int main(int argc, char *argv[])
     while(1)
     {
         int args_size = getcmd("\n>> ", args, &bg_flag);
+
         builtin_flag = exec_builtin(args, args_size, &bg_flag, &builtin_flag);
         if (builtin_flag < 0) create_child(args, args_size, &bg_flag);
+
         reset_prompt(args, &bg_flag, &builtin_flag);
     }
     return 0;
-}
-
-// TODO Handle child process termination
-void handle_signal(int signal)
-{
-    kill(0, 0);
 }
 
 int getcmd(char *prompt, char *args[], int *background)
@@ -123,24 +122,6 @@ int exec_builtin(char *args[], int args_size, int *background, int *builtin)
     return status_code;
 }
 
-int verify_output_redir(char *args[], int args_size)
-{
-    for (int index = 0; index < args_size; index++)
-    {
-        if (strcmp(args[index], ">") == 0)
-        {
-            if (index + 1 > (args_size - 1)) return -1;
-            close(1);
-            creat(args[index + 1], O_RDWR);
-            // if (access(args[index + 1], F_OK) != 0) printf("Files does not exists\n");
-            // open(args[index + 1], O_RDWR);
-            return 0;
-        }
-    }
-
-    return -1;
-}
-
 int create_child(char *args[], int args_size, int *background)
 {
     int status_code = 0;
@@ -150,11 +131,17 @@ int create_child(char *args[], int args_size, int *background)
     {
         // Verify output redirection
         int redir = verify_output_redir(args, args_size);
-        printf("Redirection: %d\n", redir);
-        // Verify command piping
+        if (redir > 0)
+        {
+            char *cmd_args[redir + 1];
+            for (int i = 0; i < redir + 1; i++)
+            {
+                cmd_args[i] = args[i];
+            }
+            // Verify command piping
 
-
-        status_code = execvp(args[0], args);
+            status_code = execvp(args[0], cmd_args);
+        } else status_code = execvp(args[0], args);
 
         if (status_code < 0) exit(EXIT_FAILURE);
         exit(EXIT_SUCCESS);
@@ -170,6 +157,29 @@ int reset_prompt(char *args[], int *background, int *builtin)
     free(*args);
     *background = 0;
     *builtin = -1;
+
+    return 0;
+}
+
+// TODO Handle child process termination
+void handle_signal(int signal)
+{
+    kill(0, 0);
+}
+
+int verify_output_redir(char *args[], int args_size)
+{
+    for (int index = 0; index < args_size; index++)
+    {
+        if (args[index] == NULL) break;
+        if (strcmp(args[index], ">") == 0)
+        {
+            if (index + 1 > (args_size - 1)) return 0;
+            // close(1);
+            // open(args[index + 1], O_RDWR);
+            return index;
+        }
+    }
 
     return 0;
 }
