@@ -134,14 +134,19 @@ int create_child(char *args[], int args_size, int *background)
         if (redir > 0)
         {
             char *cmd_args[redir + 1];
-            for (int i = 0; i < redir + 1; i++)
+            for (int i = 0; i < redir; i++)
             {
                 cmd_args[i] = args[i];
             }
+            cmd_args[redir] = NULL;
             // Verify command piping
 
-            status_code = execvp(args[0], cmd_args);
-        } else status_code = execvp(args[0], args);
+            status_code = execvp(cmd_args[0], cmd_args);
+        } 
+        else {
+            printf("normal call\n");
+            status_code = execvp(args[0], args);
+        }
 
         if (status_code < 0) exit(EXIT_FAILURE);
         exit(EXIT_SUCCESS);
@@ -149,7 +154,7 @@ int create_child(char *args[], int args_size, int *background)
         if (*background == 0) waitpid(pid, &status_code, 0);
     }
 
-    return 0;
+    return status_code;
 }
 
 int reset_prompt(char *args[], int *background, int *builtin)
@@ -176,6 +181,7 @@ int verify_output_redir(char *args[], int args_size)
         {
             if (index + 1 > (args_size - 1)) return 0;
             // close(1);
+            // creat(args[index + 1], S_IRWXU);
             // open(args[index + 1], O_RDWR);
             return index;
         }
