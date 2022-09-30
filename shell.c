@@ -7,120 +7,78 @@
 #include <signal.h>
 #include <fcntl.h>
 
-#define LENGTH 20
-
-int MAX_USER_INPUT = 1000;
-char *args[20];
-int bg = 0;
-int builtin_cmd = 0;
-// int output_redirection = 0;
-
-// Running the shell functions
+void handle_signal(int signal);
 int getcmd(char *prompt, char *args[], int *background);
-int createchild(char *args[], int args_size);
-int execcmd(char *command, char *args[], int args_size);
-void reset_shell(char *args[], int *background, int *builtin_cmd);
-// Handling the input signals
-static void handle_signal(int signal);
-// Built-in commands
+int exec_builtin(char *args[], int args_size, int *background, int *builtin);
+int create_child(char *args[], int args_size, int *background);
+int reset_prompt(char *args[], int *background, int *builtin);
+
 int echo (char *args[], int args_size);
 int cd (char *args[], int args_size);
-int pwd(void);
-void exit_builtin(char *args[]);
-int fg(char *args[], int args_size);
-int jobs(void);
+int pwd ();
+void custom_exit (char *args[], int *background, int *builtin);
+int fg (char *args[], int args_size);
+int jobs();
 
-int set_output_redirection(char *args[], int cnt)
+int main(int argc, char *argv[])
 {
-    int redirect = 0;
-    for (int i = 1; i < cnt; i++)
-    {
-        if (strcmp(args[i], ">") == 0)
-        {
-            if (i + 1 > cnt) break;
-            close(1);
-            open(args[i + 1], O_RDWR);
-            redirect = i;
-            break;
-        }
-    }
-    return redirect;
-}
 
-int main(int argc, char *argv[]) 
-{
-    printf("%s\n", "Booting shell...");
+    char *args[20];
 
-    // Handle signal handling errors
+    int bg_flag = 0;
+    int builtin_flag = -1;
+
     if (signal(SIGINT, handle_signal) == SIG_ERR)
     {
-        printf("Could not bind the SIGINT signal handler\n");
+        printf("Could not bind the SIGNINT signal handler.\n");
         exit(EXIT_FAILURE);
     }
-    if (signal(SIGTSTP, handle_signal) == SIG_ERR)
+    if (signal(SIGTSTP, SIG_IGN) == SIG_ERR)
     {
-        printf("Could not bind the SIGINT signal handler\n");
+        printf("Could not bind the SITGTSTP signal handler.\n");
         exit(EXIT_FAILURE);
     }
 
-    // Running the shell
-    while(1) 
+    while(1)
     {
-        int cnt = getcmd("\n>> ", args, &bg);
-        int output_redirection = set_output_redirection(args, cnt);
-        if (output_redirection > 0)
-        { 
-            cnt = output_redirection;
-        }
-        int builtin = execcmd(args[0], args, cnt);
-        if (builtin < 0) createchild(args, cnt);
-        reset_shell(args, &bg, &builtin_cmd);
+        int args_size = getcmd("\n>> ", args, &bg_flag);
+        builtin_flag = exec_builtin(args, args_size, &bg_flag, &builtin_flag);
+        if (builtin_flag < 0) create_child(args, args_size, &bg_flag);
+        reset_prompt(args, &bg_flag, &builtin_flag);
     }
     return 0;
 }
 
-static void handle_signal(int signal)
+// TODO Handle child process termination
+void handle_signal(int signal)
 {
-    if (signal == SIGINT)
-    {
-        printf("%s %d%s\n.", "Caught signal", signal, ", and now exiting the shell");
-        exit(1);
-    }
+    kill(0, 0);
 }
 
-void reset_shell(char* args[], int *background, int *builtin_cmd)
-{
-    // TODO Close file if output redirection is called
-    free(*args);
-    *background = 0;
-    *builtin_cmd = 0;
-}
-
-int getcmd(char *prompt, char *args[], int *background) 
+int getcmd(char *prompt, char *args[], int *background)
 {
     int length, i = 0;
     char *token, *loc;
     char *line = NULL;
     size_t linecap = 0;
-    
+
     printf("%s", prompt);
+
+    // Get User Prompt
     length = getline(&line, &linecap, stdin);
+    if (length < 0) exit(EXIT_FAILURE);
 
-    if (length <= 0) exit(-1);
-
-    // Handle background process
+    // Verify the background flag
     if ((loc = index(line, '&')) != NULL) 
     {
         *background = 1;
         *loc = ' ';
-    } 
-    else *background = 0;
+    } else *background = 0;
 
-    while ((token = strsep(&line, " \t\n")) != NULL) 
+    while ((token = strsep(&line, " \t\n")) != NULL)
     {
-        for (int token_index = 0; token_index < strlen(token); token_index++) 
+        for (int token_index = 0; token_index < strlen(token); token_index++)
         {
-            // Handle non-printable characters
             if (token[token_index] <= 32) token[token_index] = '\0';
         }
         if (strlen(token) > 0) args[i++] = token;
@@ -130,40 +88,17 @@ int getcmd(char *prompt, char *args[], int *background)
     return i;
 }
 
-int createchild(char *args[], int args_size) 
-{
-    int status_code = 0;
-    // TODO Avoid child process if built-in command is called
-    if (args_size == 0) return -1;
-    int pid = fork();
-    // printf("%d", pid);
-    if (pid == 0) {
-        printf("--> Child running\n");
-        status_code = execvp(args[0], args);
-        if (status_code < 0) {
-            printf("--> Child failed\n");
-            exit(-1);
-        } else {
-            printf("--> Child succeeded\n");
-            exit(1);
-        }
-    } else {
-        printf("--> Parent waiting\n");
-        if (bg == 0) waitpid(pid, &status_code, 0);
-        printf("--> Parent done\n");
-    }
-
-    return 0;
-}
-
-int execcmd(char *command, char *args[], int args_size) 
+int exec_builtin(char *args[], int args_size, int *background, int *builtin)
 {
     int status_code = -1;
-    if (args_size <= 0) return status_code; 
+
+    if (args_size == 0) return status_code;
+
+    char* command = args[0];
     if (strcmp(command, "echo") == 0)
     {
         status_code = echo(args, args_size);
-    }
+    } 
     else if (strcmp(command, "cd") == 0)
     {
         status_code = cd(args, args_size);
@@ -174,7 +109,7 @@ int execcmd(char *command, char *args[], int args_size)
     }
     else if (strcmp(command, "exit") == 0)
     {
-        exit_builtin(args);
+        custom_exit(args, background, builtin);
     }
     else if (strcmp(command, "fg") == 0)
     {
@@ -184,15 +119,64 @@ int execcmd(char *command, char *args[], int args_size)
     {
         status_code = jobs();
     }
+
     return status_code;
 }
 
-/*
-    echo - print all arguments to the console.
-*/
-int echo (char *args[], int args_size) 
+int verify_output_redir(char *args[], int args_size)
 {
-    for (int i = 1; i < args_size; i++) 
+    for (int index = 0; index < args_size; index++)
+    {
+        if (strcmp(args[index], ">") == 0)
+        {
+            if (index + 1 > (args_size - 1)) return -1;
+            close(1);
+            creat(args[index + 1], O_RDWR);
+            // if (access(args[index + 1], F_OK) != 0) printf("Files does not exists\n");
+            // open(args[index + 1], O_RDWR);
+            return 0;
+        }
+    }
+
+    return -1;
+}
+
+int create_child(char *args[], int args_size, int *background)
+{
+    int status_code = 0;
+    
+    pid_t pid = fork();
+    if (pid == 0)
+    {
+        // Verify output redirection
+        int redir = verify_output_redir(args, args_size);
+        printf("Redirection: %d\n", redir);
+        // Verify command piping
+
+
+        status_code = execvp(args[0], args);
+
+        if (status_code < 0) exit(EXIT_FAILURE);
+        exit(EXIT_SUCCESS);
+    } else {
+        if (*background == 0) waitpid(pid, &status_code, 0);
+    }
+
+    return 0;
+}
+
+int reset_prompt(char *args[], int *background, int *builtin)
+{
+    free(*args);
+    *background = 0;
+    *builtin = -1;
+
+    return 0;
+}
+
+int echo (char *args[], int args_size)
+{
+    for (int i = 1; i < args_size; i++)
     {
         if (args[i] == NULL) continue;
         printf("%s ", args[i]);
@@ -202,58 +186,40 @@ int echo (char *args[], int args_size)
     return 0;
 }
 
-/*
-    cd - changes directory based on the given path.
-         If no path was provided, then it will print the current working directory.
-*/
 int cd (char *args[], int args_size)
 {
-    int status_code = 0;
-    if (args_size == 1)
-    {
-        status_code = pwd();
-    }
-    else
-    {
-        status_code = chdir(args[1]);
-    }
+    int status_code = -1;
+
+    if (args_size == 1) status_code = pwd();
+    status_code = chdir(args[1]);
+
     return status_code;
 }
 
-/*
-    pwd - print the current working directory
-*/
-int pwd ()
+int pwd()
 {
     char path[100];
-    if (getcwd(path, sizeof path) == NULL)
-    {
-        return -1;
-    }
+
+    if (getcwd(path, sizeof path) == NULL) return -1;
     printf("%s\n", path);
+
     return 0;
 }
 
-/*
-    exit - free any allocated memory, kills any child process and exits the shell
-*/
-// TODO Handle killing all child processes
-void exit_builtin(char* args[]) 
+void custom_exit(char* args[], int *background, int *builtin)
 {
-    free(*args);
+    reset_prompt(args, background, builtin);
     exit(0);
 }
 
-// TODO Bring a background job to the foreground using their pid
+// TODO Implement foreground feature
 int fg(char *args[], int args_size)
 {
-    if (args_size != 2) return -1;
-    // ? Bring job with corresponding pid to foreground
-    return 0;
+    return -1;
 }
 
-// TODO List jobs running in the background
+// TODO Implement jobs feature
 int jobs()
 {
-    return 0;
+    return -1;
 }
