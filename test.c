@@ -11,18 +11,18 @@ typedef struct node
 void add(int pid, struct node **head)
 {
     struct node* temp = (struct node*) malloc(sizeof(node));
-    temp->pid = pid;
+    temp -> pid = pid;
     if (*head == NULL)
     {
         *head = temp;
-        (*head)->next = NULL;
+        (*head) -> next = NULL;
     } else {
         struct node* ptr = *head;
 
-        while(ptr->next != NULL) ptr = ptr->next;
+        while(ptr -> next != NULL) ptr = ptr -> next;
 
-        ptr->next = temp;
-        temp->next = NULL;
+        ptr -> next = temp;
+        temp -> next = NULL;
     }
 }
 
@@ -31,8 +31,8 @@ void print_all(struct node **head)
     struct node* ptr = *head;
     while(ptr != NULL)
     {
-        printf("Job: %d\n", ptr->pid);
-        ptr = ptr->next;
+        printf("Job: %d\n", ptr -> pid);
+        ptr = ptr -> next;
     }
 }
 

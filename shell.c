@@ -14,8 +14,8 @@ typedef struct job_node
 } job_node;
 
 int getcmd(char *prompt, char *args[], int *background);
-int exec_builtin(char *args[], int args_size, int *background, int *builtin, struct job_node *head);
-int create_child(char *args[], int args_size, int *background, struct job_node *head);
+int exec_builtin(char *args[], int args_size, int *background, int *builtin, struct job_node **head);
+int create_child(char *args[], int args_size, int *background, struct job_node **head);
 int reset_prompt(char *args[], int *background, int *builtin);
 
 void handle_signal(int signal);
@@ -25,8 +25,8 @@ int echo (char *args[], int args_size);
 int cd (char *args[], int args_size);
 int pwd ();
 void custom_exit (char *args[], int *background, int *builtin);
-int fg (char *args[], int args_size);
-int jobs(struct job_node *head);
+int fg (char *args[], int args_size, struct job_node **head);
+int jobs(struct job_node **head);
 
 void add_job(pid_t pid, struct job_node **head)
 {
@@ -111,7 +111,7 @@ int getcmd(char *prompt, char *args[], int *background)
     return i;
 }
 
-int exec_builtin(char *args[], int args_size, int *background, int *builtin, struct job_node *head)
+int exec_builtin(char *args[], int args_size, int *background, int *builtin, struct job_node **head)
 {
     int status_code = -1;
 
@@ -136,17 +136,17 @@ int exec_builtin(char *args[], int args_size, int *background, int *builtin, str
     }
     else if (strcmp(command, "fg") == 0)
     {
-        status_code = fg(args, args_size);
+        status_code = fg(args, args_size, head);
     }
     else if (strcmp(command, "jobs") == 0)
     {
-        status_code = jobs(&head);
+        status_code = jobs(head);
     }
 
     return status_code;
 }
 
-int create_child(char *args[], int args_size, int *background, struct job_node *head)
+int create_child(char *args[], int args_size, int *background, struct job_node **head)
 {
     int status_code = 0;
 
@@ -172,14 +172,8 @@ int create_child(char *args[], int args_size, int *background, struct job_node *
         // Execute shell command
         status_code = execvp(args[0], args);
     } else {
-        if (*background == 0) {
-            printf("PID in FOREGROUND %d\n", pid);
-            waitpid(pid, &status_code, 0);
-        }
-        else {
-            printf("PID IN BACKGROUND %d\n", pid);
-            add_job(pid, &head);
-        }
+        if (*background == 0) waitpid(pid, &status_code, 0);
+        else add_job(pid, head);
     }
 
     return status_code;
@@ -196,7 +190,7 @@ int reset_prompt(char *args[], int *background, int *builtin)
 
 void handle_signal(int signal)
 {
-    int result = kill(signal, SIGTERM);
+    kill(signal, SIGTERM);
 }
 
 int verify_output_redir(char *args[], int args_size)
@@ -248,27 +242,94 @@ int pwd()
     return 0;
 }
 
+
+// TODO Update once everything's implemented
 void custom_exit(char* args[], int *background, int *builtin)
 {
     reset_prompt(args, background, builtin);
     exit(0);
 }
 
-// TODO Implement foreground feature
-int fg(char *args[], int args_size)
+int find_pid(int job_id, struct job_node **head)
 {
-    // Double check status code
-    // waitpid(args[1], CLD_CONTINUED, 0);
-    return -1;
+    pid_t pid = 0;
+    struct job_node* ptr = *head;
+    int index = 1;
+
+    while (ptr != NULL)
+    {
+        if (job_id == index)
+        {
+            pid = ptr -> pid;
+            break;
+        }
+        ptr = ptr -> next;
+        index++;
+    }
+
+    return pid;
 }
 
-int jobs(struct job_node *head)
+int remove_pid(int job_id, struct job_node **head)
+{
+    struct job_node *ptr = *head;
+    struct job_node *prv;
+
+    int flag = 0;
+    int index = 1;
+
+    if (job_id == index)
+    {
+        *head = (*head) -> next;
+    } else {
+        for (index; index < job_id; index++)
+        {
+            prv = prv -> next;
+        }
+        ptr = prv -> next;
+        if (prv -> next -> next != NULL)
+        {
+            prv -> next = prv -> next -> next;
+        }
+        ptr -> next = NULL;
+        free(ptr);
+    }
+
+    return 0;
+}
+
+// TODO Implement foreground feature
+int fg(char *args[], int args_size, struct job_node **head)
+{
+
+    if (args_size < 2) return -1;
+
+    int status_code = 0;
+    int job_id = 0;
+    int result = 0;
+
+    job_id = atoi(args[1]);
+    if (job_id == 0) return status_code;
+
+    pid_t pid = find_pid(job_id, head);
+    if (pid > 0) result = waitpid(pid, &status_code, WCONTINUED);
+    if (result > 0) remove_pid(job_id, head);
+    printf("%d\n", result);
+
+    return status_code;
+}
+
+int jobs(struct job_node **head)
 {
     struct job_node* ptr = *head;
-    while (ptr -> next != NULL)
+    int index = 1;
+
+    while (ptr != NULL)
     {
-        printf("%d\n", ptr -> pid);
+        printf("[%d] %d\n", index, ptr -> pid);
         ptr = ptr -> next;
+        index++;
     }
+
     return 0;
 }
