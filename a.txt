@@ -1,0 +1,8 @@
+total 68
+-rwx------ 1 wwong74 nogroup     0 Sep 30 19:21 a.txt
+-rw-r--r-- 1 wwong74 nogroup  5930 Sep 29 18:14 main_shell.c
+-rw-r--r-- 1 wwong74 nogroup   212 Sep 29 09:37 Makefile
+-rwxr-xr-x 1 wwong74 nogroup 22928 Sep 30 19:21 shell
+-rw-r--r-- 1 wwong74 nogroup  5268 Sep 30 19:21 shell.c
+-rwxr-xr-x 1 wwong74 nogroup 17368 Sep 30 11:15 test
+-rw-r--r-- 1 wwong74 nogroup   490 Sep 30 11:15 test.c

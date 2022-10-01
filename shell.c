@@ -7,10 +7,15 @@
 #include <signal.h>
 #include <fcntl.h>
 
+typedef struct job_node
+{
+    pid_t pid;
+    struct job_node* next;
+} job_node;
 
 int getcmd(char *prompt, char *args[], int *background);
-int exec_builtin(char *args[], int args_size, int *background, int *builtin);
-int create_child(char *args[], int args_size, int *background);
+int exec_builtin(char *args[], int args_size, int *background, int *builtin, struct job_node *head);
+int create_child(char *args[], int args_size, int *background, struct job_node *head);
 int reset_prompt(char *args[], int *background, int *builtin);
 
 void handle_signal(int signal);
@@ -21,12 +26,31 @@ int cd (char *args[], int args_size);
 int pwd ();
 void custom_exit (char *args[], int *background, int *builtin);
 int fg (char *args[], int args_size);
-int jobs();
+int jobs(struct job_node *head);
+
+void add_job(pid_t pid, struct job_node **head)
+{
+    struct job_node* temp = (struct job_node*) malloc(sizeof(job_node));
+    temp -> pid = pid;
+    if (*head == NULL)
+    {
+        *head = temp;
+        (*head) -> next = NULL;
+    } else {
+        struct job_node* ptr = *head;
+
+        while(ptr -> next != NULL) ptr = ptr -> next;
+
+        ptr -> next = temp;
+        temp -> next = NULL;
+    }
+}
 
 int main(int argc, char *argv[])
 {
 
     char *args[20];
+    struct job_node *head;
 
     int bg_flag = 0;
     int builtin_flag = -1;
@@ -46,8 +70,8 @@ int main(int argc, char *argv[])
     {
         int args_size = getcmd("\n>> ", args, &bg_flag);
 
-        builtin_flag = exec_builtin(args, args_size, &bg_flag, &builtin_flag);
-        if (builtin_flag < 0) create_child(args, args_size, &bg_flag);
+        builtin_flag = exec_builtin(args, args_size, &bg_flag, &builtin_flag, &head);
+        if (builtin_flag < 0) create_child(args, args_size, &bg_flag, &head);
 
         reset_prompt(args, &bg_flag, &builtin_flag);
     }
@@ -87,7 +111,7 @@ int getcmd(char *prompt, char *args[], int *background)
     return i;
 }
 
-int exec_builtin(char *args[], int args_size, int *background, int *builtin)
+int exec_builtin(char *args[], int args_size, int *background, int *builtin, struct job_node *head)
 {
     int status_code = -1;
 
@@ -116,16 +140,18 @@ int exec_builtin(char *args[], int args_size, int *background, int *builtin)
     }
     else if (strcmp(command, "jobs") == 0)
     {
-        status_code = jobs();
+        status_code = jobs(&head);
     }
 
     return status_code;
 }
 
-int create_child(char *args[], int args_size, int *background)
+int create_child(char *args[], int args_size, int *background, struct job_node *head)
 {
     int status_code = 0;
-    
+
+    if (args_size == 0) return status_code;
+
     pid_t pid = fork();
     if (pid == 0)
     {
@@ -139,19 +165,21 @@ int create_child(char *args[], int args_size, int *background)
                 cmd_args[i] = args[i];
             }
             cmd_args[redir] = NULL;
-            // Verify command piping
-
+            // Execute shell command to the provided file
             status_code = execvp(cmd_args[0], cmd_args);
         } 
-        else {
-            printf("normal call\n");
-            status_code = execvp(args[0], args);
-        }
 
-        if (status_code < 0) exit(EXIT_FAILURE);
-        exit(EXIT_SUCCESS);
+        // Execute shell command
+        status_code = execvp(args[0], args);
     } else {
-        if (*background == 0) waitpid(pid, &status_code, 0);
+        if (*background == 0) {
+            printf("PID in FOREGROUND %d\n", pid);
+            waitpid(pid, &status_code, 0);
+        }
+        else {
+            printf("PID IN BACKGROUND %d\n", pid);
+            add_job(pid, &head);
+        }
     }
 
     return status_code;
@@ -166,10 +194,9 @@ int reset_prompt(char *args[], int *background, int *builtin)
     return 0;
 }
 
-// TODO Handle child process termination
 void handle_signal(int signal)
 {
-    kill(0, 0);
+    int result = kill(signal, SIGTERM);
 }
 
 int verify_output_redir(char *args[], int args_size)
@@ -180,9 +207,8 @@ int verify_output_redir(char *args[], int args_size)
         if (strcmp(args[index], ">") == 0)
         {
             if (index + 1 > (args_size - 1)) return 0;
-            // close(1);
-            // creat(args[index + 1], S_IRWXU);
-            // open(args[index + 1], O_RDWR);
+            close(1);
+            creat(args[index + 1], S_IRWXU);
             return index;
         }
     }
@@ -231,11 +257,18 @@ void custom_exit(char* args[], int *background, int *builtin)
 // TODO Implement foreground feature
 int fg(char *args[], int args_size)
 {
+    // Double check status code
+    // waitpid(args[1], CLD_CONTINUED, 0);
     return -1;
 }
 
-// TODO Implement jobs feature
-int jobs()
+int jobs(struct job_node *head)
 {
-    return -1;
+    struct job_node* ptr = *head;
+    while (ptr -> next != NULL)
+    {
+        printf("%d\n", ptr -> pid);
+        ptr = ptr -> next;
+    }
+    return 0;
 }

@@ -1,28 +1,46 @@
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+typedef struct node
+{
+    int pid;
+    struct node* next;
+} node;
+
+void add(int pid, struct node **head)
+{
+    struct node* temp = (struct node*) malloc(sizeof(node));
+    temp->pid = pid;
+    if (*head == NULL)
+    {
+        *head = temp;
+        (*head)->next = NULL;
+    } else {
+        struct node* ptr = *head;
+
+        while(ptr->next != NULL) ptr = ptr->next;
+
+        ptr->next = temp;
+        temp->next = NULL;
+    }
+}
+
+void print_all(struct node **head)
+{
+    struct node* ptr = *head;
+    while(ptr != NULL)
+    {
+        printf("Job: %d\n", ptr->pid);
+        ptr = ptr->next;
+    }
+}
 
 int main(void)
 {
-    char *args[4];
-    char *cmd[2];
-
-    args[0] = "ls";
-    args[1] = "-l";
-    args[2] = ">";
-    args[3] = "a.txt";
-
-    for (int i = 0; i < 2; i++)
-    {
-        // char value[20];
-        // strcpy(value, args[i]);
-        cmd[i] = args[i];
-        // printf("%s\n", cmd[i]);
-    }
-    for (int i = 0; i < 2; i++)
-    {
-        printf("%s\n", cmd[i]);
-    }
-    // cmd[0] = value;
-    // printf("%s\n", cmd[0]);
-    return 0;
+    struct node *head;
+    add(1, &head);
+    add(3, &head);
+    add(5, &head);
+    print_all(&head);
 }
