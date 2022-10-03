@@ -19,7 +19,7 @@ int create_child(char *args[], int args_size, int *background, struct job_node *
 int reset_prompt(char *args[], int *background, int *builtin);
 
 void handle_signal(int signal);
-int verify_output_redir(char *args[], int args_size);
+int verify_output_redir(char *symbol, char *args[], int args_size);
 
 int echo (char *args[], int args_size);
 int cd (char *args[], int args_size);
@@ -57,7 +57,7 @@ int main(int argc, char *argv[])
 
     if (signal(SIGINT, handle_signal) == SIG_ERR)
     {
-        printf("Could not bind the SIGNINT signal handler.\n");
+        printf("Could not bind the SIGINT signal handler.\n");
         exit(EXIT_FAILURE);
     }
     if (signal(SIGTSTP, SIG_IGN) == SIG_ERR)
@@ -153,12 +153,72 @@ int create_child(char *args[], int args_size, int *background, struct job_node *
     int status_code = 0;
 
     if (args_size == 0) return status_code;
+    int piping = verify_output_redir("|", args, args_size);
+    
+    char *output_args[piping + 1];
+    char *input_args[(args_size - (piping + 1)) + 1];
+
+    if (piping > 0)
+    {
+        for (int i = 0; i < piping; i++)
+        {
+            output_args[i] = args[i];
+        }
+        output_args[piping] = NULL;
+        for (int i = 0; i < (args_size - (piping + 1)); i++)
+        {
+            input_args[i] = args[i + (piping + 1)];
+        }
+        input_args[args_size - (piping + 1)] = NULL;
+
+        int fd[2];
+        int status_code1 = 0;
+        int status_code2 = 0;
+        pid_t pid1;
+        pid_t pid2;
+        if (pipe(fd) == -1)
+        {
+            printf("Error creating Pipe 1\n");
+        }
+
+        pid1 = fork();
+
+        if (pid1 == 0)
+        {
+            pid2 = fork();
+
+            if (pid2 == 0)
+            {
+                close(1);
+                dup(fd[1]);
+                close(fd[1]);
+                close(fd[0]);
+                execvp(output_args[0], output_args);
+                exit(1);
+            } else {
+                waitpid(pid2, &status_code2, 0);
+                close(0);
+                dup(fd[0]);
+                close(fd[0]);
+                close(fd[1]);
+                execvp(input_args[0], input_args);
+                exit(1);
+            }
+        } else {
+            close(fd[1]);
+            close(fd[0]);
+            int result = waitpid(pid1, &status_code1, 0);
+            return 0;
+        }
+
+    }
 
     pid_t pid = fork();
+
     if (pid == 0)
     {
         // Verify output redirection
-        int redir = verify_output_redir(args, args_size);
+        int redir = verify_output_redir(">", args, args_size);
         if (redir > 0)
         {
             char *cmd_args[redir + 1];
@@ -167,16 +227,20 @@ int create_child(char *args[], int args_size, int *background, struct job_node *
                 cmd_args[i] = args[i];
             }
             cmd_args[redir] = NULL;
+            close(1);
+            creat(args[redir + 1], S_IRWXU);
             // Execute shell command to the provided file
             status_code = execvp(cmd_args[0], cmd_args);
         }
-
+        // exit(1);
         // Execute shell command
         status_code = execvp(args[0], args);
-    } else {
-        if (*background == 0) {
-            waitpid(pid, &status_code, 0);
-        } else add_job(pid, head);
+    } 
+    else {
+    if (*background == 0) {
+        waitpid(pid, &status_code, 0);
+        // waitpid(out_pid, &status_code, 0);
+    } else add_job(pid, head);
     }
 
     return status_code;
@@ -194,19 +258,21 @@ int reset_prompt(char *args[], int *background, int *builtin)
 // TODO Remove background processes
 void handle_signal(int signal)
 {
-    kill(signal, SIGTERM);
+    printf("%d", signal);
+    if (signal == SIGINT){
+
+    }
+    kill(0, SIGCHLD);
 }
 
-int verify_output_redir(char *args[], int args_size)
+int verify_output_redir(char *symbol, char *args[], int args_size)
 {
     for (int index = 0; index < args_size; index++)
     {
         if (args[index] == NULL) break;
-        if (strcmp(args[index], ">") == 0)
+        if (strcmp(args[index], symbol) == 0)
         {
             if (index + 1 > (args_size - 1)) return 0;
-            close(1);
-            creat(args[index + 1], S_IRWXU);
             return index;
         }
     }
