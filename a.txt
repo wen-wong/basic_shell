@@ -1,0 +1,7 @@
+a.txt
+main_shell.c
+Makefile
+pipe.c
+shell
+shell.c
+test.c

@@ -7,11 +7,15 @@
 #include <signal.h>
 #include <fcntl.h>
 
+#define MAX_ARGS 20
+
 typedef struct job_node
 {
     pid_t pid;
     struct job_node* next;
 } job_node;
+
+pid_t *fg_pid;
 
 int getcmd(char *prompt, char *args[], int *background);
 int exec_builtin(char *args[], int args_size, int *background, int *builtin, struct job_node **background_jobs);
@@ -38,8 +42,8 @@ int jobs(struct job_node **background_jobs);
 int main(int argc, char *argv[])
 {
 
-    char *args[20];
-    struct job_node *background_jobs;
+    char *args[MAX_ARGS];
+    struct job_node *background_jobs = NULL;
 
     int bg_flag = 0;
     int builtin_flag = -1;
@@ -80,7 +84,9 @@ int getcmd(char *prompt, char *args[], int *background)
 
     // Get User Prompt
     length = getline(&line, &linecap, stdin);
-    if (length < 0) exit(EXIT_FAILURE);
+    if (length < 0) {
+        exit(EXIT_FAILURE);
+    }
 
     // Verify the background flag
     if ((loc = index(line, '&')) != NULL) 
@@ -89,6 +95,7 @@ int getcmd(char *prompt, char *args[], int *background)
         *loc = ' ';
     } else *background = 0;
 
+    char* addr = line;
     while ((token = strsep(&line, " \t\n")) != NULL)
     {
         for (int token_index = 0; token_index < strlen(token); token_index++)
@@ -98,7 +105,7 @@ int getcmd(char *prompt, char *args[], int *background)
         if (strlen(token) > 0) args[i++] = token;
     }
     args[i] = NULL;
-
+    if (args[0] == NULL) free(addr);
     return i;
 }
 
@@ -153,6 +160,10 @@ int create_child(char *args[], int args_size, int *background, struct job_node *
     }
     if (pid == 0)
     {
+        if (*background == 1)
+        {
+            signal(SIGINT, SIG_IGN);
+        }
         // Verify output redirection
         int redir_index = verify_redirection(">", args, args_size);
         if (redir_index > 0)
@@ -216,6 +227,7 @@ int create_child(char *args[], int args_size, int *background, struct job_node *
         status_code = execvp(args[0], args);
     } 
     else {
+        fg_pid = &pid;
         if (*background == 0) {
             waitpid(pid, &status_code, 0);
         } else add_job(pid, background_jobs);
@@ -253,11 +265,6 @@ int setup_command_pipe(char *first_args[], char *second_args[], char *args[], in
     return 0;
 }
 
-int execute_command_pipe(char *args[], int index)
-{
-
-}
-
 // Free allocated memory for the user prompt arguments and reset the flags
 int reset_prompt(char *args[], int *background, int *builtin)
 {
@@ -271,7 +278,9 @@ int reset_prompt(char *args[], int *background, int *builtin)
 // Handle CTRL+C signal to kill all foreground child processes
 void handle_signal(int signal)
 {
-    kill(signal, SIGTERM);
+    if (fg_pid == NULL) return;
+    printf("%d\n", *fg_pid);
+    kill(*fg_pid, SIGCHLD);
 }
 
 // Return the index of the symbol, e.g., used in output redirection to find ">" and command piping to find "|"
@@ -309,7 +318,7 @@ int cd (char *args[], int args_size)
     int status_code = -1;
 
     if (args_size == 1) status_code = pwd();
-    status_code = chdir(args[1]);
+    else status_code = chdir(args[1]);
 
     return status_code;
 }
@@ -328,15 +337,15 @@ int pwd()
 // Free allocated memory and exit the shell
 void custom_exit(char* args[], int *background, int *builtin, struct job_node **background_jobs)
 {
-    reset_prompt(args, background, builtin);
     remove_jobs(background_jobs);
-    exit(0);
+    reset_prompt(args, background, builtin);
+    exit(EXIT_SUCCESS);
 }
 
 // Place a background job to the foreground using the job id
 int fg(char *args[], int args_size, struct job_node **background_jobs)
 {
-    int status_code = -1;
+    int status_code = 0;
     int job_id;
     pid_t pid;
 
@@ -352,10 +361,13 @@ int fg(char *args[], int args_size, struct job_node **background_jobs)
     }
 
     pid = find_pid(job_id, background_jobs);
-    if (pid > 0) status_code = waitpid(pid, &status_code, WCONTINUED);
-
-    if (status_code < 1) printf("fg: %d: no such job\n", job_id);
-    else remove_pid(job_id, background_jobs);
+    if (pid > 0) {
+        fg_pid = &pid;
+        printf("%d\n", *fg_pid);
+        status_code = waitpid(*fg_pid, &status_code, 0);
+        if (status_code < 1) printf("fg: %d: no such job\n", job_id);
+        else remove_pid(job_id, background_jobs);
+    }
 
     return status_code;
 }
@@ -368,10 +380,13 @@ int jobs(struct job_node **background_jobs)
 
     while (ptr != NULL)
     {
+        if (!(ptr -> pid)) break;
         printf("[%d] %d\n", index, ptr -> pid);
         ptr = ptr -> next;
         index++;
     }
+
+    free(ptr);
 
     return 0;
 }
@@ -381,10 +396,10 @@ void add_job(pid_t pid, struct job_node **jobs)
 {
     struct job_node* new_job = (struct job_node*) malloc(sizeof(job_node));
     new_job -> pid = pid;
+    new_job -> next = NULL;
     if (*jobs == NULL)
     {
         *jobs = new_job;
-        (*jobs) -> next = NULL;
     } else {
         struct job_node* current_job = *jobs;
 
@@ -413,36 +428,45 @@ int find_pid(int job_id, struct job_node **jobs)
         index++;
     }
 
+    // free(current_job);
+
     return pid;
 }
 
 // Remove a job based on their job id
 int remove_pid(int job_id, struct job_node **jobs)
 {
-    struct job_node *current_job;
-    struct job_node *prev_job = *jobs;
+    struct job_node *current_job = *jobs;
 
     if (job_id == 1)
     {
-        current_job = *jobs;
-        if ((*jobs) -> next != NULL) *jobs = (*jobs) -> next;
-        else *jobs = NULL;
-        free(current_job);
-    } else {
-        for (int i = 1; i < job_id - 1; i++)
+        if ((*jobs) -> next == NULL)
         {
-            prev_job = prev_job -> next;
-        }
-        if (prev_job -> next -> next == NULL)
-        {
-            prev_job -> next = NULL;
+            *jobs = NULL;
         } else {
-            current_job = prev_job -> next;
-            prev_job -> next = prev_job -> next -> next;
+            *jobs = (*jobs) -> next;
+            current_job -> next = NULL;
             current_job = NULL;
-            free(current_job);
+        }
+    } else {
+        struct job_node *next_job;
+
+        for (int i = 1; i < job_id - 1; i ++)
+        {
+            current_job = current_job -> next;
+        }
+
+        if (current_job -> next -> next == NULL)
+        {
+            current_job -> next = NULL;
+        } else {
+            next_job = current_job -> next;
+            current_job -> next = current_job -> next -> next;
+            next_job = NULL;
+            free(next_job);
         }
     }
+    free(current_job);
 
     return 0;
 }
@@ -457,6 +481,6 @@ int remove_jobs(struct job_node **jobs)
         current_job -> next = NULL;
         free(current_job);
     }
-    free(*jobs);
+
     return 0;
 }
