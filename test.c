@@ -10,26 +10,28 @@ typedef struct node
 
 void add(int pid, struct node **head)
 {
-    struct node* temp = (struct node*) malloc(sizeof(node));
+    struct node *temp = malloc(sizeof(node));
     temp -> pid = pid;
+    temp -> next = NULL;
     if (*head == NULL)
     {
         *head = temp;
-        (*head) -> next = NULL;
     } else {
         struct node* ptr = *head;
 
         while(ptr -> next != NULL) ptr = ptr -> next;
 
         ptr -> next = temp;
-        temp -> next = NULL;
     }
+    temp = NULL;
+    free(temp);
 }
 
 void print_all(struct node **head)
 {
-    struct node* ptr = *head;
-    while(ptr != NULL)
+    struct node *ptr = *head;
+    if (ptr == NULL) return;
+    while((ptr) != NULL)
     {
         printf("Job: %d\n", ptr -> pid);
         ptr = ptr -> next;
@@ -62,22 +64,20 @@ void remove_node(int index, struct node **head)
         } else {
             ptr = prv -> next;
             prv -> next = prv -> next -> next;
-            ptr = NULL;
-            free(ptr);
         }
     }
-    
-    print_all(head);
-    printf("\n");
+    free(ptr);
 }
 
 int main(void)
 {
-    struct node *head;
+    struct node *head = NULL;
     add(1, &head);
-    // add(3, &head);
-    // add(5, &head);
-    // print_all(&head);
+    add(3, &head);
+    add(5, &head);
+    print_all(&head);
     remove_node(1, &head);
-    // remove_node(2, &head);
+    remove_node(1, &head);
+    remove_node(1, &head);
+    free(head);
 }
