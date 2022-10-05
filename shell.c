@@ -407,7 +407,6 @@ int reset_prompt(char *args[], int *background, int *builtin)
     return 0;
 }
 
-// Handle CTRL+C signal to kill all foreground child processes
 /*
  * Function: handle_signal
  * -----------------------
@@ -438,7 +437,6 @@ void handle_child_signal(int signal)
     if (value > 0) remove_pid(value, &background_jobs);
 }
 
-// Return the index of the symbol, e.g., used in output redirection to find ">" and command piping to find "|"
 /*
  * Function: verify_redirection
  * ----------------------------
@@ -719,7 +717,6 @@ int remove_pid(int pid, struct job_node **jobs)
     return 0;
 }
 
-// Remove all jobs in a linked list
 /*
  * Function: remove_jobs
  * ---------------------
