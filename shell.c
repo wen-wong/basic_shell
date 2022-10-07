@@ -53,32 +53,34 @@
 typedef struct job_node
 {
     pid_t pid;
+    int job_id;
     struct job_node* next;
 } job_node;
 
 pid_t *fg_pid;                      /* Reference to the foreground PID */
 struct job_node *background_jobs;   /* List of background processes */
 
+/* Prototype functions */
 int getcmd(char *prompt, char *args[], int *background);
-int exec_builtin(char *args[], int args_size, int *background, int *builtin, struct job_node **background_jobs);
-int create_child(char *args[], int args_size, int *background, struct job_node **background_jobs);
-int reset_prompt(char *args[], int *background, int *builtin);
+int exec_builtin(char *args[], int args_size, struct job_node **background_jobs);
+int create_child(char *args[], int args_size, int *background, struct job_node **background_jobs, int *bg_counter);
+void reset_prompt(char *args[], int *background, int *builtin);
 
-void add_job(pid_t pid, struct job_node **jobs);
+void add_job(pid_t pid, struct job_node **jobs, int *bg_counter);
 int find_pid(int job_id, struct job_node **jobs);
-int remove_pid(int pid, struct job_node **jobs);
-int remove_jobs(struct job_node **jobs);
+void remove_pid(int pid, struct job_node **jobs);
+void remove_jobs(struct job_node **jobs);
 
 void handle_signal(int signal);
 void handle_child_signal(int signal);
 int verify_redirection(char *symbol, char *args[], int args_size);
-int setup_output_redirection(char *args[], char *prev_args[], int index);
-int setup_command_pipe(char *first_args[], char *second_args[], char *args[], int args_size, int index);
+void setup_output_redirection(char *args[], char *prev_args[], int index);
+void setup_command_pipe(char *first_args[], char *second_args[], char *args[], int args_size, int index);
 
 int echo (char *args[], int args_size);
 int cd (char *args[], int args_size);
 int pwd ();
-void custom_exit (char *args[], int *background, int *builtin, struct job_node **background_jobs);
+void custom_exit (char *args[], struct job_node **background_jobs);
 int fg (char *args[], int args_size, struct job_node **background_jobs);
 int jobs(struct job_node **background_jobs);
 
@@ -96,6 +98,7 @@ int main(void)
     background_jobs = NULL;
     int bg_flag = 0;            /* Background flag */
     int builtin_flag = -1;      /* Built-in flag */
+    int bg_counter = 1;         /* Background process counter */
 
     printf("Booting Shell Program...\n");
 
@@ -123,9 +126,9 @@ int main(void)
         int args_size = getcmd(">> ", args, &bg_flag);
 
         /* Execute build-in command */
-        builtin_flag = exec_builtin(args, args_size, &bg_flag, &builtin_flag, &background_jobs);
+        builtin_flag = exec_builtin(args, args_size, &background_jobs);
         /* Execute command with a child process */
-        if (builtin_flag < 0) create_child(args, args_size, &bg_flag, &background_jobs);
+        if (builtin_flag < 0) create_child(args, args_size, &bg_flag, &background_jobs, &bg_counter);
 
         /* Reset user prompt and flags to get the next user prompt */
         reset_prompt(args, &bg_flag, &builtin_flag);
@@ -189,14 +192,12 @@ int getcmd(char *prompt, char *args[], int *background)
 *
 * args: array of arguments
 * args_size: size of the array of arguments
-* background: reference to the background flag
-* builtin: reference to the built-in command flag
 * background_jobs: linked list of the background processes
 *
 * returns: an integer if a built-in command has been called successfully
 *
 */
-int exec_builtin(char *args[], int args_size, int *background, int *builtin, struct job_node **background_jobs)
+int exec_builtin(char *args[], int args_size, struct job_node **background_jobs)
 {
     int status_code = -1;
 
@@ -217,7 +218,7 @@ int exec_builtin(char *args[], int args_size, int *background, int *builtin, str
     }
     else if (strcmp(command, "exit") == 0)
     {
-        custom_exit(args, background, builtin, background_jobs);
+        custom_exit(args, background_jobs);
     }
     else if (strcmp(command, "fg") == 0)
     {
@@ -241,11 +242,12 @@ int exec_builtin(char *args[], int args_size, int *background, int *builtin, str
  * args_size: size of the array of arguments
  * background: reference to the background flag
  * background_jobs: linked list of the background processes
+ * bg_counter: reference to the background process counter
  * 
- * returns: the status of the whole process
+ * returns: the status of the child process
  *
  */
-int create_child(char *args[], int args_size, int *background, struct job_node **background_jobs)
+int create_child(char *args[], int args_size, int *background, struct job_node **background_jobs, int *bg_counter)
 {
     int status_code = 0;
     int pipe_flag = 0;
@@ -336,7 +338,7 @@ int create_child(char *args[], int args_size, int *background, struct job_node *
         if (*background == 0) {
             fg_pid = &pid;
             waitpid(pid, &status_code, 0);
-        } else add_job(pid, background_jobs);
+        } else add_job(pid, background_jobs, bg_counter);
     }
 
     return status_code;
@@ -355,13 +357,12 @@ int create_child(char *args[], int args_size, int *background, struct job_node *
  * returns: 0 to indicate its success 
  *
  */
-int setup_output_redirection(char *args[], char *prev_args[], int index)
+void setup_output_redirection(char *args[], char *prev_args[], int index)
 {
     for (int i = 0; i < index; i++) args[i] = prev_args[i];
     args[index] = NULL;
     close(1);
     creat(prev_args[index + 1], S_IRWXU);
-    return 0;
 }
 
 /*
@@ -375,10 +376,8 @@ int setup_output_redirection(char *args[], char *prev_args[], int index)
  * args_size: size of the array of arguments
  * index: position of the "|" in the array of arguments
  *
- * returns: 0 to indicate its success.
- *
  */
-int setup_command_pipe(char *first_args[], char *second_args[], char *args[], int args_size, int index)
+void setup_command_pipe(char *first_args[], char *second_args[], char *args[], int args_size, int index)
 {
     for (int i = 0; i < index; i++) first_args[i] = args[i];
     first_args[index] = NULL;
@@ -388,8 +387,6 @@ int setup_command_pipe(char *first_args[], char *second_args[], char *args[], in
         second_args[i] = args[i + (index + 1)];
     }
     second_args[args_size - (index + 1)] = NULL;
-
-    return 0;
 }
 
 /*
@@ -401,16 +398,12 @@ int setup_command_pipe(char *first_args[], char *second_args[], char *args[], in
  * background: reference to the background flag
  * builtin: reference to the built-in command flag
  *
- * returns: 0 to indicate its success.
- *
  */
-int reset_prompt(char *args[], int *background, int *builtin)
+void reset_prompt(char *args[], int *background, int *builtin)
 {
     free(*args);
     *background = 0;
     *builtin = -1;
-
-    return 0;
 }
 
 /*
@@ -518,7 +511,6 @@ int cd (char *args[], int args_size)
  * -------------
  * print present working directory to the terminal.
  * 
- * 
  * returns: 0 to indicate its success
  * 
  */ 
@@ -538,15 +530,13 @@ int pwd()
  * frees allocated memory and exit the shell.
  * 
  * args: array of all arguments of the user
- * background: reference to the background flag
- * builtin: reference to the built-in command flag
  * background_jobs: reference to the list of jobs
  * 
  */ 
-void custom_exit(char* args[], int *background, int *builtin, struct job_node **background_jobs)
+void custom_exit(char* args[], struct job_node **background_jobs)
 {
     remove_jobs(background_jobs);
-    reset_prompt(args, background, builtin);
+    free(*args);
     exit(EXIT_SUCCESS);
 }
 
@@ -558,6 +548,8 @@ void custom_exit(char* args[], int *background, int *builtin, struct job_node **
  * args: array of all arguments of the user
  * args_size: size of the array of arguments
  * background_jobs: reference to the list of jobs
+ * 
+ * returns: status of the foreground child process
  * 
  */ 
 int fg(char *args[], int args_size, struct job_node **background_jobs)
@@ -600,18 +592,18 @@ int fg(char *args[], int args_size, struct job_node **background_jobs)
  * 
  * background_jobs: reference to the list of jobs
  * 
+ * returns: 0 to indicate its success
+ * 
  */ 
 int jobs(struct job_node **background_jobs)
 {
     struct job_node* ptr = *background_jobs;
-    int index = 1;
 
     while (ptr != NULL)
     {
         if (!(ptr -> pid)) break;
-        printf("[%d] %d\n", index, ptr -> pid);
+        printf("[%d] %d\n", ptr -> job_id, ptr -> pid);
         ptr = ptr -> next;
-        index++;
     }
     free(ptr);
 
@@ -624,13 +616,15 @@ int jobs(struct job_node **background_jobs)
  * adds new job to linked list of jobs
  * 
  * pid: PID of the new job
- * background_jobs: reference to the list of jobs
+ * jobs: reference to the list of jobs
+ * bg_counter: reference to the background counter to assign the process' job ID
  * 
  */ 
-void add_job(pid_t pid, struct job_node **jobs)
+void add_job(pid_t pid, struct job_node **jobs, int *bg_counter)
 {
     struct job_node *new_job = malloc(sizeof(job_node));
     new_job -> pid = pid;
+    new_job -> job_id = *bg_counter;
     new_job -> next = NULL;
 
     if (*jobs == NULL)
@@ -645,8 +639,7 @@ void add_job(pid_t pid, struct job_node **jobs)
 
         add_job -> next = new_job;
     }
-
-    // free(new_job);
+    *bg_counter += 1;
 }
 
 /*
@@ -668,7 +661,7 @@ int find_pid(int job_id, struct job_node **jobs)
 
     while (search_job != NULL)
     {
-        if (job_id == index)
+        if (job_id == search_job -> job_id)
         {
             pid = search_job -> pid;
             break;
@@ -691,7 +684,7 @@ int find_pid(int job_id, struct job_node **jobs)
  * returns: 0 to indicate its success
  * 
  */ 
-int remove_pid(int pid, struct job_node **jobs)
+void remove_pid(int pid, struct job_node **jobs)
 {
     struct job_node *current_job = *jobs;
     struct job_node *next_job;
@@ -704,30 +697,19 @@ int remove_pid(int pid, struct job_node **jobs)
         } else {
             *jobs = (*jobs) -> next;
             current_job -> next = NULL;
-            current_job = NULL;
         }
+        free(current_job);
     } else {
 
-        while (current_job -> pid != pid) 
+        while (current_job -> next != NULL) 
         {
+            if ((current_job -> next) -> pid == pid) break;
             current_job = current_job -> next;
         }
-        if (current_job -> next != NULL)
-        {
-            if ( current_job -> next -> next == NULL)
-            {
-                next_job = current_job -> next;
-                current_job -> next = NULL;
-            } else {
-                next_job = current_job -> next;
-                current_job -> next = current_job -> next -> next;
-            }
-        }
+        next_job = current_job -> next;
+        current_job -> next = current_job -> next -> next;
         free(next_job);
     }
-    // free(current_job);
-
-    return 0;
 }
 
 /*
@@ -740,7 +722,7 @@ int remove_pid(int pid, struct job_node **jobs)
  * returns: 0 to indicate its success
  * 
  */ 
-int remove_jobs(struct job_node **jobs)
+void remove_jobs(struct job_node **jobs)
 {
     while((*jobs) != NULL)
     {
@@ -749,6 +731,4 @@ int remove_jobs(struct job_node **jobs)
         removed_job -> next = NULL;
         free(removed_job);
     }
-
-    return 0;
 }
