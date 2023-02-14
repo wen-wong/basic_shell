@@ -26,7 +26,7 @@
  * Command Pipe
  *   Send output from the first child process as an input to the second child process.
  * 
- * Written by Wen Hin Brandon Wong - 260949201
+ * Written by Wen Hin Brandon Wong
  * 
  */
 
